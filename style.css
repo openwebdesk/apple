@@ -1,0 +1,42 @@
+body {
+    font-family: "Ubuntu Sans Mono", monospace;
+    display: flex;
+    flex-direction: column;
+    margin: 1em;
+    background-color: #101010;
+    color: white;
+    font-size: 1.2em;
+}
+
+textarea {
+    padding: 0;
+    border: 0;
+    outline: 0;
+    flex: 1;
+    font: inherit;
+    color: inherit;
+    background-color: inherit;
+}
+
+.projlogo {
+    background: -webkit-linear-gradient(45deg, #e0ff43, #f96eff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    width: fit-content;
+    font-size: 11px;
+    font-weight: bold;
+    line-height: 13px;
+    text-shadow: 0 0 10px pink;
+}
+
+div#input_cont {
+    height: fit-content;
+    display: flex;
+    flex-direction: row;
+    gap: .5em;
+    margin-top: 1em;
+
+    & #currently {
+        color: #90ff90;
+    }
+}
