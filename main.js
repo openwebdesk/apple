@@ -16,13 +16,13 @@ inputtxtar.addEventListener("input", resizeTextarea);
     const vfs = new VirtualFS();
     await vfs.loadFromStorage();
 
-    const defaultHelpApp = `(params, api) => {
-        return "Open Web CLI is a web based Command Line Interface for a local app and file storage ecosystem. Withought a graphic interface, OWC helps developers write functional programs with minimal effort. It also helps users navigate through and use their files as params very easily.\n\nThis is the syntax for a command:\n%type:code_block%<app_name / system command> <parameters seperated with spaces>";\nfor parameters including spaces, use double quotes (\").
-    }`;
+   const defaultHelpApp = `(params, api) => {
+    return \`%type: pure_text% hello %font-size: 24px% world %type: pure_text_end%\`;
+}`;
 
     const defaultReadApp = `(params, api) => {
   const filename = params[0];
-  return api.readFile(filename).then(content => content ?? \`[File not found: \${filename}]\`);
+  return api.readFile(filename).then(content => \`\%type:pure_text%\${content}\` ?? \`[File not found: \${filename}]\`);
 }`;
 
 const defaulteraseApp = `() => {}`

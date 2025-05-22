@@ -24,8 +24,37 @@ export class CLI {
         this.currentDirElement.textContent = this.cwd;
     }
     async _handleCommand(command) {
+        const args = [];
+        let current = '';
+        let inQuotes = false;
+        let escape = false;
+
+        for (let i = 0; i < command.length; i++) {
+            const char = command[i];
+
+            if (escape) {
+                current += char;
+                escape = false;
+            } else if (char === '\\') {
+                escape = true;
+            } else if (char === '"') {
+                inQuotes = !inQuotes;
+            } else if (char === ' ' && !inQuotes) {
+                if (current.length > 0) {
+                    args.push(current);
+                    current = '';
+                }
+            } else {
+                current += char;
+            }
+        }
+
+        if (current.length > 0) {
+            args.push(current);
+        }
+
+        const cmd = args.shift();
         const dirColored = `%color: #90ff90%${this.cwd}%color: white%`;
-        const [cmd, ...args] = command.split(/\s+/);
         const cmdColored = `%color: #ffd13b%${cmd}%color: white%`;
         const paramsColored = `%color: #7696ff%${args.join(' ')}%color: white%`;
 
@@ -57,8 +86,8 @@ export class CLI {
                 await this._runApp(cmd, args);
                 break;
         }
-
     }
+
 
     _handleCLRIDB() {
         this.vfs.clearfs()
@@ -165,56 +194,91 @@ export class CLI {
     _clearDisplay() {
         this.display.innerHTML = ``;
     }
+_appendToDisplay(text) {
+    function escapeHtml(str) {
+        return str.replace(/[&<>"']/g, (m) => {
+            switch (m) {
+                case '&': return '&amp;';
+                case '<': return '&lt;';
+                case '>': return '&gt;';
+                case '"': return '&quot;';
+                case "'": return '&#39;';
+            }
+        });
+    }
 
-    _appendToDisplay(text) {
-        function escapeHtml(str) {
-            return str.replace(/[&<>"']/g, (m) => {
-                switch (m) {
-                    case '&': return '&amp;';
-                    case '<': return '&lt;';
-                    case '>': return '&gt;';
-                    case '"': return '&quot;';
-                    case "'": return '&#39;';
-                }
-            });
-        }
+    const lines = text.split('\n');
+    let currentStyle = null;
 
-        const regex = /%color: ([^%]+)%/g;
+    for (const lineText of lines) {
+        const regex = /%([^%]+)%/g;
         let lastIndex = 0;
         let match;
         let resultHtml = '';
-
         const parts = [];
-        while ((match = regex.exec(text)) !== null) {
+
+        while ((match = regex.exec(lineText)) !== null) {
             if (match.index > lastIndex) {
-                parts.push({ text: text.slice(lastIndex, match.index), color: null });
+                parts.push({ text: lineText.slice(lastIndex, match.index), style: currentStyle });
             }
             lastIndex = regex.lastIndex;
 
-            const nextMatch = regex.exec(text);
-            const colorTextEnd = nextMatch ? nextMatch.index : text.length;
+            const nextMatch = regex.exec(lineText);
+            const styleTextEnd = nextMatch ? nextMatch.index : lineText.length;
 
-            parts.push({
-                text: text.slice(lastIndex, colorTextEnd),
-                color: match[1].trim()
-            });
+            const styleDirectives = match[1].split(';').map(s => s.trim()).filter(Boolean);
+            const styleObj = {};
+            for (const directive of styleDirectives) {
+                const [key, value] = directive.split(':').map(s => s.trim());
+                if (key && value) {
+                    styleObj[key] = value;
+                }
+            }
+
+            currentStyle = styleObj;
 
             if (nextMatch) {
+                parts.push({
+                    text: lineText.slice(lastIndex, nextMatch.index),
+                    style: currentStyle
+                });
                 regex.lastIndex = nextMatch.index;
                 lastIndex = nextMatch.index;
             } else {
-                lastIndex = colorTextEnd;
+                parts.push({
+                    text: lineText.slice(lastIndex),
+                    style: currentStyle
+                });
+                lastIndex = styleTextEnd;
                 break;
             }
         }
 
-        if (lastIndex < text.length) {
-            parts.push({ text: text.slice(lastIndex), color: null });
+        if (lastIndex < lineText.length) {
+            parts.push({ text: lineText.slice(lastIndex), style: currentStyle });
         }
 
         for (const part of parts) {
-            if (part.color) {
-                resultHtml += `<span style="color:${part.color}">${escapeHtml(part.text)}</span>`;
+            if (part.style) {
+                if (part.style.type === 'pure_text') {
+                    resultHtml += escapeHtml(part.text);
+                    continue;
+                }
+
+                const styles = [];
+                for (const [key, value] of Object.entries(part.style)) {
+                    if (key === 'type') {
+                        if (value === 'code_block') {
+                            styles.push('background:#1f1f1f', 'padding:5px 7px', 'border-radius:4px', 'display:inline-block', 'margin: 10px 0;', 'border: 1px solid #363636');
+                        } else if (value === 'kbd') {
+                            styles.push('font-family:monospace', 'background:#eee', 'border:1px solid #ccc', 'padding:2px 4px', 'border-radius:3px');
+                        }
+                    } else {
+                        styles.push(`${key}:${value}`);
+                    }
+                }
+
+                resultHtml += `<span style="${styles.join('; ')}">${escapeHtml(part.text)}</span>`;
             } else {
                 resultHtml += escapeHtml(part.text);
             }
@@ -224,7 +288,7 @@ export class CLI {
         line.innerHTML = resultHtml;
         this.display.appendChild(line);
     }
-
+}
 
     async _runApp(appName, params) {
         const appPath = `root/apps/${appName}.js`;
