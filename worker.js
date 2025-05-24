@@ -28,13 +28,12 @@ self.onmessage = async (e) => {
             self.postMessage({ type: 'appResult', success: false, error: error.message });
         }
     } else if (type === 'apiResponse') {
-  // Accept success, result, error from top-level fields instead of data object
-  const { success, result, error, id } = e.data;
-  const pending = pendingRequests.get(id);
-  if (!pending) return;
-  if (success) pending.resolve(result);
-  else pending.reject(new Error(error));
-  pendingRequests.delete(id);
-}
+        const { success, result, error, id } = e.data;
+        const pending = pendingRequests.get(id);
+        if (!pending) return;
+        if (success) pending.resolve(result);
+        else pending.reject(new Error(error));
+        pendingRequests.delete(id);
+    }
 
 };
