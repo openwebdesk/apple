@@ -105,12 +105,16 @@ div#tab_buttons {
         justify-content: space-between;
         font-size: 14px;
         align-items: stretch;
-        background: #2d2d2d;
         overflow: hidden;
         border-radius: 5px;
-        border: 1px solid #515151;
-        box-shadow: 0 3px 10px #00000080;
         cursor: grab;
+        transition: .2s;
+        border: 1px solid #515151;
+        background: #2d2d2d;
+
+        &:hover {
+        box-shadow: 0 3px 10px #00000080;
+    }
 
         & .process_name {
             padding: 5px 6px;
