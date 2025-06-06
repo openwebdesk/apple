@@ -25,13 +25,13 @@ inputtxtar.focus();
 	if (!vfs.getFile("root/apps/help.js"))
 		await vfs.writeFile(
 			"root/apps/help.js",
-			strToBin(await (await fetch("/apps/help.js")).text())
+			strToBin(await (await fetch("apps/help.js")).text())
 		);
 
 	if (!vfs.getFile("root/apps/read.js"))
 		await vfs.writeFile(
 			"root/apps/read.js",
-			strToBin(await (await fetch("/apps/read.js")).text())
+			strToBin(await (await fetch("apps/read.js")).text())
 		);
 
 	if (!vfs.getFile("root/apps/read.js"))
