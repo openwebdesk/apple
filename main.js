@@ -1,6 +1,7 @@
 import { VirtualFS } from "./filesystem.js";
 import { CLI } from "./cli.js";
 import { WASM } from "./wasm.js";
+import { strToBin } from "./bin.js";
 
 const inputtxtar = document.getElementById("input");
 const display = document.getElementById("logs");
@@ -24,17 +25,17 @@ inputtxtar.focus();
 	if (!vfs.getFile("root/apps/help.js"))
 		await vfs.writeFile(
 			"root/apps/help.js",
-			await (await fetch("/apps/help.js")).text()
+			strToBin(await (await fetch("/apps/help.js")).text())
 		);
 
 	if (!vfs.getFile("root/apps/read.js"))
 		await vfs.writeFile(
 			"root/apps/read.js",
-			await (await fetch("/apps/read.js")).text()
+			strToBin(await (await fetch("/apps/read.js")).text())
 		);
 
 	if (!vfs.getFile("root/apps/read.js"))
-		await vfs.writeFile("root/apps/read.js", defaulteraseApp);
+		await vfs.writeFile("root/apps/read.js", strToBin(defaulteraseApp));
 
 	new CLI(vfs, wasm, inputtxtar, display, current);
 })();

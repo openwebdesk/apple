@@ -422,14 +422,19 @@ export class CLI {
 					if (success) {
 						this._appendToDisplay(result ?? "[No output]");
 					} else {
-						this._appendToDisplay(`Error running app: ${error}`);
+						const msg = `Error running app: ${error}`;
+						console.error(msg);
+						this._appendToDisplay(msg);
 					}
 					worker.terminate();
 					resolve();
 				}
 			};
 
-			worker.postMessage({ type: "runApp", data: { appCode, params } });
+			worker.postMessage({
+				type: "runApp",
+				data: { appCode: binToStr(appCode), params },
+			});
 		});
 	}
 
