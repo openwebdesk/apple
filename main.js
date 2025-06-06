@@ -1,35 +1,40 @@
-import { VirtualFS } from './filesystem.js';
-import { CLI } from './cli.js';
+import { VirtualFS } from "./filesystem.js";
+import { CLI } from "./cli.js";
+import { WASM } from "./wasm.js";
 
 const inputtxtar = document.getElementById("input");
 const display = document.getElementById("logs");
 const current = document.getElementById("currently");
 
 const resizeTextarea = () => {
-    inputtxtar.style.height = "auto";
-    inputtxtar.style.height = inputtxtar.scrollHeight + "px";
+	inputtxtar.style.height = "auto";
+	inputtxtar.style.height = inputtxtar.scrollHeight + "px";
 };
 
 inputtxtar.addEventListener("input", resizeTextarea);
+inputtxtar.focus();
 
 (async () => {
-    const vfs = new VirtualFS();
-    await vfs.loadFromStorage();
+	const vfs = new VirtualFS();
+	await vfs.loadFromStorage();
+	const wasm = new WASM(vfs);
 
-   const defaultHelpApp = `(params, api) => {
-    return \`%type: pure_text% hello %font-size: 24px% world %type: pure_text_end%\`;
-}`;
+	const defaulteraseApp = `() => {}`;
 
-    const defaultReadApp = `(params, api) => {
-  const filename = params[0];
-  return api.readFile(filename).then(content => \`\%type:pure_text%\${content}\` ?? \`[File not found: \${filename}]\`);
-}`;
+	if (!vfs.getFile("root/apps/help.js"))
+		await vfs.writeFile(
+			"root/apps/help.js",
+			await (await fetch("/apps/help.js")).text()
+		);
 
-const defaulteraseApp = `() => {}`
+	if (!vfs.getFile("root/apps/read.js"))
+		await vfs.writeFile(
+			"root/apps/read.js",
+			await (await fetch("/apps/read.js")).text()
+		);
 
-    if (!vfs.getFile('root/apps/help.js')) await vfs.writeFile('root/apps/help.js', defaultHelpApp);
-    if (!vfs.getFile('root/apps/read.js')) await vfs.writeFile('root/apps/read.js', defaultReadApp);
-    if (!vfs.getFile('root/apps/read.js')) await vfs.writeFile('root/apps/read.js', defaulteraseApp);
+	if (!vfs.getFile("root/apps/read.js"))
+		await vfs.writeFile("root/apps/read.js", defaulteraseApp);
 
-    new CLI(vfs, inputtxtar, display, current);
+	new CLI(vfs, wasm, inputtxtar, display, current);
 })();
