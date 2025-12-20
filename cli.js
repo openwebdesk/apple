@@ -1,15 +1,12 @@
 import { binToStr } from "./bin.js";
-import { WASM } from "./wasm.js";
 
 export class CLI {
-	constructor(vfs, wasm, inputElement, displayElement, currentDirElement) {
+	constructor(vfs, inputElement, displayElement, currentDirElement) {
 		this.vfs = vfs;
 		this.input = inputElement;
 		this.display = displayElement;
 		this.currentDirElement = currentDirElement;
 		this.cwd = "root";
-		/** @type {WASM} */
-		this.wasm = wasm;
 		this._bindInput();
 		this._updateCurrentDir();
 	}
@@ -231,122 +228,44 @@ export class CLI {
 		function escapeHtml(str) {
 			return str.replace(/[&<>"']/g, m => {
 				switch (m) {
-					case "&":
-						return "&amp;";
-					case "<":
-						return "&lt;";
-					case ">":
-						return "&gt;";
-					case '"':
-						return "&quot;";
-					case "'":
-						return "&#39;";
+					case "&": return "&amp;";
+					case "<": return "&lt;";
+					case ">": return "&gt;";
+					case '"': return "&quot;";
+					case "'": return "&#39;";
 				}
 			});
 		}
 
 		const lines = text.split("\n");
-		let currentStyle = null;
+		let inPureText = false;
 
 		for (const lineText of lines) {
-			const regex = /%([^%]+)%/g;
-			let lastIndex = 0;
-			let match;
 			let resultHtml = "";
-			const parts = [];
 
-			while ((match = regex.exec(lineText)) !== null) {
-				if (match.index > lastIndex) {
-					parts.push({
-						text: lineText.slice(lastIndex, match.index),
-						style: currentStyle,
-					});
-				}
-				lastIndex = regex.lastIndex;
-
-				const nextMatch = regex.exec(lineText);
-				const styleTextEnd = nextMatch
-					? nextMatch.index
-					: lineText.length;
-
-				const styleDirectives = match[1]
-					.split(";")
-					.map(s => s.trim())
-					.filter(Boolean);
-				const styleObj = {};
-				for (const directive of styleDirectives) {
-					const [key, value] = directive
-						.split(":")
-						.map(s => s.trim());
-					if (key && value) {
-						styleObj[key] = value;
-					}
-				}
-
-				currentStyle = styleObj;
-
-				if (nextMatch) {
-					parts.push({
-						text: lineText.slice(lastIndex, nextMatch.index),
-						style: currentStyle,
-					});
-					regex.lastIndex = nextMatch.index;
-					lastIndex = nextMatch.index;
+			if (inPureText) {
+				const endIdx = lineText.indexOf("%pure_text_end%");
+				if (endIdx !== -1) {
+					resultHtml += escapeHtml(lineText.slice(0, endIdx));
+					inPureText = false;
+					resultHtml += this._formatStyledText(
+						lineText.slice(endIdx + 15)
+					);
 				} else {
-					parts.push({
-						text: lineText.slice(lastIndex),
-						style: currentStyle,
-					});
-					lastIndex = styleTextEnd;
-					break;
+					resultHtml += escapeHtml(lineText);
 				}
-			}
-
-			if (lastIndex < lineText.length) {
-				parts.push({
-					text: lineText.slice(lastIndex),
-					style: currentStyle,
-				});
-			}
-
-			for (const part of parts) {
-				if (part.style) {
-					if (part.style.type === "pure_text") {
-						resultHtml += escapeHtml(part.text);
-						continue;
-					}
-
-					const styles = [];
-					for (const [key, value] of Object.entries(part.style)) {
-						if (key === "type") {
-							if (value === "code_block") {
-								styles.push(
-									"background:#1f1f1f",
-									"padding:5px 7px",
-									"border-radius:4px",
-									"display:inline-block",
-									"margin: 10px 0;",
-									"border: 1px solid #363636"
-								);
-							} else if (value === "kbd") {
-								styles.push(
-									"font-family:monospace",
-									"background:#eee",
-									"border:1px solid #ccc",
-									"padding:2px 4px",
-									"border-radius:3px"
-								);
-							}
-						} else {
-							styles.push(`${key}:${value}`);
-						}
-					}
-
-					resultHtml += `<span style="${styles.join(
-						"; "
-					)}">${escapeHtml(part.text)}</span>`;
+			} else {
+				const startIdx = lineText.indexOf("%type:pure_text%");
+				if (startIdx !== -1) {
+					resultHtml += this._formatStyledText(
+						lineText.slice(0, startIdx)
+					);
+					inPureText = true;
+					resultHtml += escapeHtml(
+						lineText.slice(startIdx + 16)
+					);
 				} else {
-					resultHtml += escapeHtml(part.text);
+					resultHtml += this._formatStyledText(lineText);
 				}
 			}
 
@@ -356,36 +275,79 @@ export class CLI {
 		}
 	}
 
-	async _runApp(appName, params) {
-		const wasmPath = `root/apps/${appName}.wasm`;
-		const wasm = await this.wasm.load(wasmPath);
-		const appPath = `root/apps/${appName}.js`;
-		const appCode = await this.vfs.readFile(appPath);
-		if (!appCode && !wasm) {
-			this._appendToDisplay(`App not found: ${appName}`);
-			return;
+	_formatStyledText(lineText) {
+		const regex = /%([^%]+)%/g;
+		let lastIndex = 0;
+		let match;
+		let resultHtml = "";
+		let currentStyle = null;
+
+		while ((match = regex.exec(lineText)) !== null) {
+			if (match.index > lastIndex) {
+				resultHtml += this._span(
+					lineText.slice(lastIndex, match.index),
+					currentStyle
+				);
+			}
+
+			const directives = match[1].split(";").map(s => s.trim()).filter(Boolean);
+			const styleObj = {};
+			for (const d of directives) {
+				const [k, v] = d.split(":").map(s => s.trim());
+				if (k && v) styleObj[k] = v;
+			}
+			currentStyle = styleObj;
+			lastIndex = regex.lastIndex;
 		}
 
-		if (wasm) {
-			const { exports } = await this.wasm.run(wasm, {
-				env: {
-					print: (addr, strLen) => {
-						const mem = exports.memory;
-						let str = new TextDecoder().decode(
-							new Uint8Array(mem.buffer, addr, strLen)
-						);
+		if (lastIndex < lineText.length) {
+			resultHtml += this._span(
+				lineText.slice(lastIndex),
+				currentStyle
+			);
+		}
 
-						console.log("wasm:", str);
-						this._appendToDisplay(str);
-					},
-				},
-			});
+		return resultHtml;
+	}
 
-			if (exports?.main) {
-				const result = exports.main();
-				if (result) this._appendToDisplay(String(result));
-			} else this._appendToDisplay("[No main export]");
+	_span(text, style) {
+		const esc = text.replace(/[&<>"']/g, m => {
+			switch (m) {
+				case "&": return "&amp;";
+				case "<": return "&lt;";
+				case ">": return "&gt;";
+				case '"': return "&quot;";
+				case "'": return "&#39;";
+			}
+		});
 
+		if (!style) return esc;
+
+		const styles = [];
+		for (const [k, v] of Object.entries(style)) {
+			if (k === "type" && v === "code_block") {
+				styles.push(
+					"background:#1f1f1f",
+					"padding:5px 7px",
+					"border-radius:4px",
+					"display:inline-block",
+					"border:1px solid #363636",
+					"white-space:pre"
+				);
+			} else {
+				styles.push(`${k}:${v}`);
+			}
+		}
+
+		return `<span style="${styles.join("; ")}">${esc}</span>`;
+	}
+
+
+	async _runApp(appName, params) {
+		const appPath = `root/apps/${appName}.js`;
+		const appCode = await this.vfs.readFile(appPath);
+		if (!appCode) {
+			this._appendToDisplay(`App not found: ${appName}`);
 			return;
 		}
 

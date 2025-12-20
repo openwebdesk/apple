@@ -18,5 +18,5 @@
 		return str;
 	}
 
-   return api.readFile(filename).then(content => `%type:pure_text%${binToStr(content)}` ?? `[File not found: ${filename}]`);
+   return api.readFile(filename).then(content => `%type:pure_text%${binToStr(content)}%type: pure_text_end%` ?? `[File not found: ${filename}]`);
 }

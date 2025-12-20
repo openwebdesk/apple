@@ -1,6 +1,5 @@
 import { VirtualFS } from "./filesystem.js";
 import { CLI } from "./cli.js";
-import { WASM } from "./wasm.js";
 import { strToBin } from "./bin.js";
 
 const inputtxtar = document.getElementById("input");
@@ -18,7 +17,6 @@ inputtxtar.focus();
 (async () => {
 	const vfs = new VirtualFS();
 	await vfs.loadFromStorage();
-	const wasm = new WASM(vfs);
 
 	const defaulteraseApp = `() => {}`;
 
@@ -37,5 +35,5 @@ inputtxtar.focus();
 	if (!vfs.getFile("root/apps/read.js"))
 		await vfs.writeFile("root/apps/read.js", strToBin(defaulteraseApp));
 
-	new CLI(vfs, wasm, inputtxtar, display, current);
+	new CLI(vfs, inputtxtar, display, current);
 })();
