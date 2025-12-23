@@ -351,54 +351,67 @@ export class CLI {
 			return;
 		}
 
+		const workerSrc = `
+	const pending=new Map();let rid=0;
+	onmessage=async e=>{
+		const {type,data,id}=e.data;
+		if(type==="runApp"){
+			const api={readFile:f=>new Promise((res,rej)=>{
+				const i=rid++;pending.set(i,{res,rej});
+				postMessage({type:"apiRequest",id:i,method:"readFile",params:{filename:f}});
+			})};
+			try{
+				const fn = new Function(
+	"params",
+	"api",
+	\`"use strict"; return (\${data.appCode})(params, api);\`
+);
+				const r=await fn(data.params,api);
+				postMessage({type:"appResult",success:true,result:r});
+			}catch(err){
+				postMessage({type:"appResult",success:false,error:err.message});
+			}
+		}
+		if(type==="apiResponse"){
+			const p=pending.get(id);
+			if(!p)return;
+			e.data.success?p.res(e.data.result):p.rej(new Error(e.data.error));
+			pending.delete(id);
+		}
+	};
+	`;
+
+		const url = URL.createObjectURL(new Blob([workerSrc], { type: "application/javascript" }));
+		const worker = new Worker(url);
+
 		return new Promise(resolve => {
-			const worker = new Worker("worker.js");
+			worker.onmessage = e => {
+				const { type, id, method, params, success, result, error } = e.data;
 
-			worker.onmessage = event => {
-				const { type, id, method, params, success, result, error } =
-					event.data;
+				if (type === "apiRequest" && method === "readFile") {
+					const fullPath = this._resolvePath(params.filename);
+					this.vfs.readFile(fullPath).then(
+						r => worker.postMessage({ type: "apiResponse", id, success: true, result: r }),
+						err => worker.postMessage({ type: "apiResponse", id, success: false, error: err.message })
+					);
+					return;
+				}
 
-				if (type === "apiRequest") {
-					if (method === "readFile") {
-						const fullPath = this._resolvePath(params.filename);
-						this.vfs.readFile(fullPath).then(
-							fileContent => {
-								worker.postMessage({
-									type: "apiResponse",
-									id,
-									success: true,
-									result: fileContent,
-								});
-							},
-							err => {
-								worker.postMessage({
-									type: "apiResponse",
-									id,
-									success: false,
-									error: err.message,
-								});
-							}
-						);
-					}
-				} else if (type === "appResult") {
-					if (success) {
-						this._appendToDisplay(result ?? "[No output]");
-					} else {
-						const msg = `Error running app: ${error}`;
-						console.error(msg);
-						this._appendToDisplay(msg);
-					}
+				if (type === "appResult") {
+					this._appendToDisplay(success ? result ?? "[No output]" : `Error running app: ${error}`);
 					worker.terminate();
+					URL.revokeObjectURL(url);
 					resolve();
 				}
 			};
 
 			worker.postMessage({
 				type: "runApp",
-				data: { appCode: binToStr(appCode), params },
+				data: { appCode: binToStr(appCode), params }
 			});
 		});
 	}
+
 
 	_createSandboxAPI() {
 		return {
