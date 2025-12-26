@@ -1,3 +1,4 @@
 (params, api) => {
-	return `hello %font-size: 24px% world %type: pure_text_end%`;
+	let x = api.writeOutput("this is text");
+	return x;
 }

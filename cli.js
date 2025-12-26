@@ -239,7 +239,8 @@ export class CLI {
 
 		const lines = text.split("\n");
 		let inPureText = false;
-
+		let id = randomString(16);
+		const linescont = document.createElement("div");
 		for (const lineText of lines) {
 			let resultHtml = "";
 
@@ -271,8 +272,12 @@ export class CLI {
 
 			const line = document.createElement("div");
 			line.innerHTML = resultHtml;
-			this.display.appendChild(line);
+			linescont.appendChild(line);
 		}
+
+		linescont.setAttribute("data-line-id", id);
+		this.display.appendChild(linescont);
+		return id;
 	}
 
 	_formatStyledText(lineText) {
@@ -420,8 +425,17 @@ export class CLI {
 				return await this.vfs.readFile(filePath);
 			},
 			writeOutput: text => {
-				this._appendToDisplay(text);
+				return this._appendToDisplay(text);
 			},
 		};
 	}
+}
+
+function randomString(len) {
+	const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+	let out = '';
+	for (let i = 0; i < len; i++) {
+		out += chars[Math.floor(Math.random() * chars.length)];
+	}
+	return out;
 }
