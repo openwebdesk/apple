@@ -31,9 +31,11 @@ inputtxtar.focus();
 			"root/apps/read.js",
 			strToBin(await (await fetch("apps/read.js")).text())
 		);
-
-	if (!vfs.getFile("root/apps/read.js"))
-		await vfs.writeFile("root/apps/read.js", strToBin(defaulteraseApp));
-
+		
+	if (!vfs.getFile("root/apps/gra.js"))
+		await vfs.writeFile(
+			"root/apps/gra.js",
+			strToBin(await (await fetch("apps/gra.js")).text())
+		);
 	new CLI(vfs, inputtxtar, display, current);
 })();

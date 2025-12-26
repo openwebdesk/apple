@@ -224,7 +224,7 @@ export class CLI {
 	_clearDisplay() {
 		this.display.innerHTML = ``;
 	}
-	_appendToDisplay(text) {
+	_renderLines(text, linescont) {
 		function escapeHtml(str) {
 			return str.replace(/[&<>"']/g, m => {
 				switch (m) {
@@ -237,10 +237,10 @@ export class CLI {
 			});
 		}
 
+		linescont.innerHTML = "";
 		const lines = text.split("\n");
 		let inPureText = false;
-		let id = randomString(16);
-		const linescont = document.createElement("div");
+
 		for (const lineText of lines) {
 			let resultHtml = "";
 
@@ -249,22 +249,16 @@ export class CLI {
 				if (endIdx !== -1) {
 					resultHtml += escapeHtml(lineText.slice(0, endIdx));
 					inPureText = false;
-					resultHtml += this._formatStyledText(
-						lineText.slice(endIdx + 15)
-					);
+					resultHtml += this._formatStyledText(lineText.slice(endIdx + 15));
 				} else {
 					resultHtml += escapeHtml(lineText);
 				}
 			} else {
 				const startIdx = lineText.indexOf("%type:pure_text%");
 				if (startIdx !== -1) {
-					resultHtml += this._formatStyledText(
-						lineText.slice(0, startIdx)
-					);
+					resultHtml += this._formatStyledText(lineText.slice(0, startIdx));
 					inPureText = true;
-					resultHtml += escapeHtml(
-						lineText.slice(startIdx + 16)
-					);
+					resultHtml += escapeHtml(lineText.slice(startIdx + 16));
 				} else {
 					resultHtml += this._formatStyledText(lineText);
 				}
@@ -274,10 +268,25 @@ export class CLI {
 			line.innerHTML = resultHtml;
 			linescont.appendChild(line);
 		}
+	}
 
+	_appendToDisplay(text) {
+		const id = randomString(16);
+		const linescont = document.createElement("div");
 		linescont.setAttribute("data-line-id", id);
+		this._renderLines(text, linescont);
 		this.display.appendChild(linescont);
 		return id;
+	}
+
+	_appendCanvasToUI(canvas) {
+		this.display.appendChild(canvas);
+	}
+
+	_editInDisplay(id, text) {
+		const linescont = this.display.querySelector(`[data-line-id="${id}"]`);
+		if (!linescont) return;
+		this._renderLines(text, linescont);
 	}
 
 	_formatStyledText(lineText) {
@@ -357,48 +366,134 @@ export class CLI {
 		}
 
 		const workerSrc = `
-	const pending=new Map();let rid=0;
-	onmessage=async e=>{
-		const {type,data,id}=e.data;
-		if(type==="runApp"){
-			const api={readFile:f=>new Promise((res,rej)=>{
-				const i=rid++;pending.set(i,{res,rej});
-				postMessage({type:"apiRequest",id:i,method:"readFile",params:{filename:f}});
-			})};
-			try{
-				const fn = new Function(
-	"params",
-	"api",
-	\`"use strict"; return (\${data.appCode})(params, api);\`
-);
-				const r=await fn(data.params,api);
-				postMessage({type:"appResult",success:true,result:r});
-			}catch(err){
-				postMessage({type:"appResult",success:false,error:err.message});
+	const pending = new Map();
+	let rid = 0;
+
+	const createApiProxy = (path = []) => {
+		return new Proxy(() => {}, {
+			get(_, prop) {
+				return createApiProxy([...path, prop]);
+			},
+			apply(_, __, args) {
+				for (const a of args) {
+					if (a && typeof a === "object" && typeof a.then === "function") {
+						throw new Error("Promise passed to worker API");
+					}
+				}
+				return new Promise((res, rej) => {
+					const id = rid++;
+					pending.set(id, { res, rej });
+					postMessage({ type: "apiRequest", id, path, args });
+				});
+			}
+		});
+	};
+
+	const api = createApiProxy();
+
+	onmessage = async e => {
+		const { type, data, id } = e.data;
+
+		if (type === "runApp") {
+			try {
+				const fn = new Function("params", "api", \`"use strict"; return (\${data.appCode})(params, api);\`);
+				const result = await fn(data.params, api);
+				result: typeof result === "string" ? result : JSON.stringify(result)
+			} catch (err) {
+				postMessage({ type: "appResult", success: false, error: err.message });
 			}
 		}
-		if(type==="apiResponse"){
-			const p=pending.get(id);
-			if(!p)return;
-			e.data.success?p.res(e.data.result):p.rej(new Error(e.data.error));
+
+		if (type === "apiResponse") {
+			const p = pending.get(id);
+			if (!p) return;
+			e.data.success ? p.res(e.data.result) : p.rej(new Error(e.data.error));
 			pending.delete(id);
 		}
 	};
-	`;
+`;
 
 		const url = URL.createObjectURL(new Blob([workerSrc], { type: "application/javascript" }));
 		const worker = new Worker(url);
 
 		return new Promise(resolve => {
-			worker.onmessage = e => {
-				const { type, id, method, params, success, result, error } = e.data;
+			const canvases = new Map();
+			let nextSurface = 1;
 
-				if (type === "apiRequest" && method === "readFile") {
-					const fullPath = this._resolvePath(params.filename);
-					this.vfs.readFile(fullPath).then(
-						r => worker.postMessage({ type: "apiResponse", id, success: true, result: r }),
-						err => worker.postMessage({ type: "apiResponse", id, success: false, error: err.message })
-					);
+			const graphics = {
+				create: async ([opts]) => {
+					const id = nextSurface++;
+					const canvas = document.createElement("canvas");
+					canvas.width = opts.width;
+					canvas.height = opts.height;
+					const ctx = canvas.getContext("2d");
+					this._appendCanvasToUI(canvas);
+					canvases.set(id, { canvas, ctx, cmds: [] });
+					return id;
+				},
+				begin: async ([id]) => {
+					const s = canvases.get(id);
+					if (!s) throw new Error("surface");
+					s.cmds.length = 0;
+				},
+				drawRect: async ([id, x, y, w, h, color]) => {
+					const s = canvases.get(id);
+					if (!s) throw new Error("surface");
+					s.cmds.push({ t: "r", x, y, w, h, c: color });
+				},
+				end: async ([id]) => {
+					const s = canvases.get(id);
+					if (!s) throw new Error("surface");
+					const ctx = s.ctx;
+					ctx.clearRect(0, 0, s.canvas.width, s.canvas.height);
+					for (const c of s.cmds) {
+						if (c.t === "r") {
+							ctx.fillStyle = c.c;
+							ctx.fillRect(c.x, c.y, c.w, c.h);
+						}
+					}
+				},
+				destroy: async ([id]) => {
+					const s = canvases.get(id);
+					if (!s) return;
+					s.canvas.remove();
+					canvases.delete(id);
+				}
+			};
+
+			const apiTree = {
+				files: {
+					get: async ([name]) => {
+						const full = this._resolvePath(name);
+						return this.vfs.readFile(full);
+					}
+				},
+				cli: {
+					write: async ([text]) => {
+						return this._appendToDisplay(text);
+					},
+					edit: async ([id, text]) => {
+						return this._editInDisplay(id, text);
+					}
+				},
+				graphics
+			};
+
+			const resolveApi = (tree, path) =>
+				path.reduce((n, k) => n?.[k], tree);
+
+			worker.onmessage = async e => {
+				const { type, id, path, args, success, result, error } = e.data;
+
+				if (type === "apiRequest") {
+					try {
+						const fn = resolveApi(apiTree, path);
+						if (typeof fn !== "function") throw new Error(path.join("."));
+						const r = await fn(args);
+						worker.postMessage({ type: "apiResponse", id, success: true, result: r });
+					} catch (err) {
+						worker.postMessage({ type: "apiResponse", id, success: false, error: err.message });
+					}
 					return;
 				}
 
@@ -415,19 +510,7 @@ export class CLI {
 				data: { appCode: binToStr(appCode), params }
 			});
 		});
-	}
 
-
-	_createSandboxAPI() {
-		return {
-			readFile: async filename => {
-				const filePath = `${this.cwd}/${filename}`;
-				return await this.vfs.readFile(filePath);
-			},
-			writeOutput: text => {
-				return this._appendToDisplay(text);
-			},
-		};
 	}
 }
 
