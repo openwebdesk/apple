@@ -476,7 +476,14 @@ export class CLI {
 						return this._editInDisplay(id, text);
 					}
 				},
-				graphics
+				graphics,
+				network: {
+					fetchText: async ([url]) => {
+						const res = await fetch(url)
+						return await res.text()
+					}
+				}
+
 			};
 
 			const resolveApi = (tree, path) =>

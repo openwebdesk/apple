@@ -37,5 +37,10 @@ inputtxtar.focus();
 			"root/apps/gra.js",
 			strToBin(await (await fetch("apps/gra.js")).text())
 		);
+	if (!vfs.getFile("root/apps/fetch.js"))
+		await vfs.writeFile(
+			"root/apps/fetch.js",
+			strToBin(await (await fetch("apps/fetch.js")).text())
+		);
 	new CLI(vfs, inputtxtar, display, current);
 })();
