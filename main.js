@@ -14,38 +14,27 @@ const resizeTextarea = () => {
 inputtxtar.addEventListener("input", resizeTextarea);
 inputtxtar.focus();
 
-(async () => {
+async function initializeApple() {
 	const vfs = new VirtualFS();
 	await vfs.loadFromStorage();
+	const files = [
+		["root/apps/help.js", "apps/help.js"],
+		["root/apps/read.js", "apps/read.js"],
+		["root/apps/gra.js", "apps/gra.js"],
+		["root/apps/fetch.js", "apps/fetch.js"],
+		["root/apps/ginst.js", "apps/ginst.js"],
+		["root/system/settings.json", "sys/defsysset.json"]
+	];
 
-	const defaulteraseApp = `() => {}`;
+	await Promise.all(
+		files.map(async ([dst, src]) => {
+			if (vfs.getFile(dst)) return;
+			const res = await fetch(src);
+			await vfs.writeFile(dst, strToBin(await res.text()));
+		})
+	);
 
-	if (!vfs.getFile("root/apps/help.js"))
-		await vfs.writeFile(
-			"root/apps/help.js",
-			strToBin(await (await fetch("apps/help.js")).text())
-		);
-
-	if (!vfs.getFile("root/apps/read.js"))
-		await vfs.writeFile(
-			"root/apps/read.js",
-			strToBin(await (await fetch("apps/read.js")).text())
-		);
-		
-	if (!vfs.getFile("root/apps/gra.js"))
-		await vfs.writeFile(
-			"root/apps/gra.js",
-			strToBin(await (await fetch("apps/gra.js")).text())
-		);
-	if (!vfs.getFile("root/apps/fetch.js"))
-		await vfs.writeFile(
-			"root/apps/fetch.js",
-			strToBin(await (await fetch("apps/fetch.js")).text())
-		);
-	if (!vfs.getFile("root/apps/ginst.js"))
-		await vfs.writeFile(
-			"root/apps/ginst.js",
-			strToBin(await (await fetch("apps/ginst.js")).text())
-		);
 	new CLI(vfs, inputtxtar, display, current);
-})();
+}
+
+initializeApple();

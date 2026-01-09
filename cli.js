@@ -10,14 +10,73 @@ export class CLI {
 		this._bindInput();
 		this._updateCurrentDir();
 	}
-
 	_bindInput() {
-		this.input.addEventListener("keydown", async e => {
+		let selectedIndex = -1;
+		let baseValue = "";
+
+		this.input.addEventListener("keydown", e => {
+			const box = document.getElementById("appCompletition");
+			const items = box.querySelectorAll(".item");
+
+			if (e.key === "ArrowDown") {
+				e.preventDefault();
+				if (!items.length) return;
+				if (selectedIndex === -1) baseValue = this.input.value;
+				selectedIndex = (selectedIndex + 1) % items.length;
+				items.forEach(i => i.classList.remove("active"));
+				items[selectedIndex].classList.add("active");
+				this.input.value = baseValue + items[selectedIndex].innerText.slice(baseValue.length);
+			}
+
+			if (e.key === "ArrowUp") {
+				e.preventDefault();
+				if (!items.length) return;
+				if (selectedIndex === -1) baseValue = this.input.value;
+				selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+				items.forEach(i => i.classList.remove("active"));
+				items[selectedIndex].classList.add("active");
+				this.input.value = baseValue + items[selectedIndex].innerText.slice(baseValue.length);
+			}
+
 			if (e.key === "Enter") {
 				e.preventDefault();
+				if (selectedIndex !== -1) {
+					selectedIndex = -1;
+					box.style.display = "none";
+					box.innerHTML = "";
+					return;
+				}
 				const command = this.input.value.trim();
 				this.input.value = "";
+				box.style.display = "none";
+				box.innerHTML = "";
 				this._handleCommand(command);
+			}
+		});
+
+		this.input.addEventListener("keyup", e => {
+			if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter") return;
+
+			const box = document.getElementById("appCompletition");
+			box.style.display = "none";
+			box.innerHTML = "";
+			selectedIndex = -1;
+			baseValue = this.input.value;
+
+			if (this.input.value.trim() === "") return;
+
+			const entries = this.vfs.listDirectory("root/apps");
+			if (!entries?.length) return;
+
+			box.style.display = "block";
+
+			for (const entry of entries) {
+				if (entry.startsWith(this.input.value.trim())) {
+					const item = document.createElement("div");
+					item.className = "item";
+					item.innerText = entry.split(".")[0];
+					box.appendChild(item);
+				}
 			}
 		});
 	}
@@ -282,12 +341,12 @@ export class CLI {
 	_appendCanvasToUI(canvas) {
 		const x = document.createElement("div");
 		x.classList.add("canvasCont");
-		x.appendChild(canvas);
 
 		const y = document.createElement("div");
-		y.classList.add("flBtn", "material-symbols-rounded");
+		y.classList.add("flBtn", "mtr");
 		y.innerText = "fullscreen";
 		x.appendChild(y);
+		x.appendChild(canvas);
 		this.display.appendChild(x);
 	}
 
@@ -375,6 +434,7 @@ export class CLI {
 
 
 	async _runApp(appName, params) {
+		document.getElementById("input_cont").style.display = "none";
 		const appPath = `root/apps/${appName}.js`;
 		const appCode = await this.vfs.readFile(appPath);
 		if (!appCode) {
@@ -383,6 +443,9 @@ export class CLI {
 		}
 
 		const workerSrc = `
+		const controller = new AbortController();
+const signal = controller.signal;
+
 	const pending = new Map();
 	let rid = 0;
 
@@ -662,6 +725,19 @@ api.events.on = async ([event, fn]) => {
 				}
 
 			};
+			const keydownHandler = e => {
+				if (e.ctrlKey && e.key === 'c') {
+					this._appendToDisplay("^C");
+					worker.terminate();
+					URL.revokeObjectURL(url);
+					document.getElementById("input_cont").style.display = "flex";
+					document.removeEventListener('keydown', keydownHandler);
+				}
+			};
+
+			document.addEventListener('keydown', keydownHandler);
+
+
 
 			const resolveApi = (tree, path) =>
 				path.reduce((n, k) => n?.[k], tree);
@@ -687,6 +763,7 @@ api.events.on = async ([event, fn]) => {
 
 				if (type === "appResult") {
 					this._appendToDisplay(success ? result ?? "[No output]" : `Error running app: ${error}`);
+					document.getElementById("input_cont").style.display = "flex";
 					worker.terminate();
 					URL.revokeObjectURL(url);
 					resolve();

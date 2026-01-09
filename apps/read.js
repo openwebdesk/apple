@@ -17,10 +17,13 @@ async (params, api) => {
 			return str;
 		}
 
-
-		return api.files.get(filename).then(async (content) => {
-			await api.cli.write(`%type:pure_text%${await binToStr(content)}%type: pure_text_end%` ?? `File not found: ${filename}}`);
+		let x = await api.files.get(filename).then(async (content) => {
+			await api.cli.write(
+				`%type:pure_text%${await binToStr(content)}%type: pure_text_end%`
+			);
 		});
+
+		return x;
 	} catch (error) {
 		return `very nasty file: ${filename}`;
 	}

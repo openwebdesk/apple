@@ -113,8 +113,8 @@ div#tab_buttons {
         background: #2d2d2d;
 
         &:hover {
-        box-shadow: 0 3px 10px #00000080;
-    }
+            box-shadow: 0 3px 10px #00000080;
+        }
 
         & .process_name {
             padding: 5px 6px;
@@ -151,4 +151,52 @@ div#tab_buttons {
 
 canvas {
     max-width: 700px;
+}
+
+.promptsymbol {
+    position: relative;
+}
+
+#appCompletition {
+    position: absolute;
+    border-radius: .5em;
+    width: 150px;
+    left: 33px;
+    top: 1.5em;
+
+    & .item {
+        padding: .5em;
+    background: #111111;
+    &:first-child {
+        border-radius: .5em .5em 0 0;
+    }
+    &:last-child {
+        border-radius:  0 0 .5em .5em;
+    }
+
+        &.active {
+            background: #444;
+        }
+    }
+}
+
+.canvasCont {
+    display: flex;
+    flex-direction: column;
+    width: fit-content;
+    background: black;
+    border-radius: .5em;
+    position: relative;
+    margin: .5em 0;
+    border: 1px solid #80808066;
+}
+
+.flBtn {
+    align-self: end;
+    background: #1f1f1f;
+    padding: 3px;
+    border-radius: .5em;
+    position: absolute;
+    top: -1.7em;
+
 }
