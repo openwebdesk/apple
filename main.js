@@ -42,5 +42,10 @@ inputtxtar.focus();
 			"root/apps/fetch.js",
 			strToBin(await (await fetch("apps/fetch.js")).text())
 		);
+	if (!vfs.getFile("root/apps/ginst.js"))
+		await vfs.writeFile(
+			"root/apps/ginst.js",
+			strToBin(await (await fetch("apps/ginst.js")).text())
+		);
 	new CLI(vfs, inputtxtar, display, current);
 })();

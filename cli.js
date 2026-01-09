@@ -280,13 +280,30 @@ export class CLI {
 	}
 
 	_appendCanvasToUI(canvas) {
-		this.display.appendChild(canvas);
+		const x = document.createElement("div");
+		x.classList.add("canvasCont");
+		x.appendChild(canvas);
+
+		const y = document.createElement("div");
+		y.classList.add("flBtn", "material-symbols-rounded");
+		y.innerText = "fullscreen";
+		x.appendChild(y);
+		this.display.appendChild(x);
 	}
 
 	_editInDisplay(id, text) {
 		const linescont = this.display.querySelector(`[data-line-id="${id}"]`);
 		if (!linescont) return;
 		this._renderLines(text, linescont);
+	}
+
+	_appendNodeToDisplay(node) {
+		const id = randomString(16)
+		const cont = document.createElement("div")
+		cont.setAttribute("data-line-id", id)
+		cont.appendChild(node)
+		this.display.appendChild(cont)
+		return id
 	}
 
 	_formatStyledText(lineText) {
@@ -391,6 +408,15 @@ export class CLI {
 
 	const api = createApiProxy();
 
+	const handlers = new Map();
+
+api.events.on = async ([event, fn]) => {
+	if (!handlers.has(event)) handlers.set(event, new Set());
+	handlers.get(event).add(fn);
+	postMessage({ type: "subscribe", event });
+};
+
+
 	onmessage = async e => {
 		const { type, data, id } = e.data;
 
@@ -410,6 +436,12 @@ export class CLI {
 			e.data.success ? p.res(e.data.result) : p.rej(new Error(e.data.error));
 			pending.delete(id);
 		}
+	if (type === "event") {
+	const hs = handlers.get(e.data.event);
+	if (!hs) return;
+	for (const fn of hs) fn(e.data.data);
+}
+
 	};
 `;
 
@@ -417,55 +449,176 @@ export class CLI {
 		const worker = new Worker(url);
 
 		return new Promise(resolve => {
+
+			const eventBus = new Map();
+			let nextSub = 1;
+			const events = {
+				on: async ([event]) => {
+					const id = nextSub++;
+					if (!eventBus.has(event)) eventBus.set(event, new Map());
+					eventBus.get(event).set(id, worker);
+					return id;
+				},
+				off: async ([event, id]) => {
+					eventBus.get(event)?.delete(id);
+				},
+				emit: async ([event, data]) => {
+					const subs = eventBus.get(event);
+					if (!subs) return;
+					for (const w of subs.keys()) {
+						worker.postMessage({ type: "event", event, data });
+					}
+				}
+			};
 			const canvases = new Map();
 			let nextSurface = 1;
+			let nextAsk = 1
+			const asks = new Map()
 
 			const graphics = {
-				create: async ([opts]) => {
+				create: ([opts]) => {
 					const id = nextSurface++;
 					const canvas = document.createElement("canvas");
 					canvas.width = opts.width;
 					canvas.height = opts.height;
 					const ctx = canvas.getContext("2d");
+
+					canvas.addEventListener("click", e => {
+						const r = canvas.getBoundingClientRect();
+						const x = e.clientX - r.left;
+						const y = e.clientY - r.top;
+						if (apiTree && apiTree.events && apiTree.events.emit) {
+							apiTree.events.emit(["graphics.click", { id, x, y }]);
+						}
+					});
 					this._appendCanvasToUI(canvas);
+
 					canvases.set(id, { canvas, ctx, cmds: [] });
 					return id;
 				},
 				begin: async ([id]) => {
 					const s = canvases.get(id);
-					if (!s) throw new Error("surface");
+					if (!s) throw new Error("surface not found");
 					s.cmds.length = 0;
 				},
+
 				drawRect: async ([id, x, y, w, h, color]) => {
 					const s = canvases.get(id);
-					if (!s) throw new Error("surface");
+					if (!s) throw new Error("surface not found");
 					s.cmds.push({ t: "r", x, y, w, h, c: color });
 				},
-				end: async ([id]) => {
+				drawCircle: ([id, x, y, radius, color]) => {
 					const s = canvases.get(id);
 					if (!s) throw new Error("surface");
+					s.cmds.push({ t: "c", x, y, r: radius, c: color });
+					return
+				},
+				drawText: async ([id, text, x, y, color, fontSize = 16]) => {
+					const s = canvases.get(id);
+					if (!s) throw new Error("surface not found");
+					s.cmds.push({ t: "t", text, x, y, c: color, f: fontSize });
+				},
+				clear: async ([id]) => {
+					const s = canvases.get(id);
+					if (!s) throw new Error("surface not found");
+					s.ctx.clearRect(0, 0, s.canvas.width, s.canvas.height);
+				},
+
+				end: async ([id]) => {
+					const s = canvases.get(id);
+					if (!s) throw new Error("surface not found");
 					const ctx = s.ctx;
 					ctx.clearRect(0, 0, s.canvas.width, s.canvas.height);
 					for (const c of s.cmds) {
-						if (c.t === "r") {
-							ctx.fillStyle = c.c;
-							ctx.fillRect(c.x, c.y, c.w, c.h);
+						switch (c.t) {
+							case "r":
+								ctx.fillStyle = c.c;
+								ctx.fillRect(c.x, c.y, c.w, c.h);
+								break;
+							case "c":
+								ctx.beginPath();
+								ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+								ctx.fillStyle = c.c;
+								ctx.fill();
+								break;
+							case "cs":
+								ctx.beginPath();
+								ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+								ctx.strokeStyle = c.c;
+								ctx.lineWidth = c.w;
+								ctx.stroke();
+								break;
+							case "t":
+								ctx.fillStyle = c.c;
+								ctx.font = `${c.f}px sans-serif`;
+								ctx.fillText(c.text, c.x, c.y);
+								break;
 						}
 					}
 				},
-				destroy: async ([id]) => {
+
+				drawCircleStroke: ([id, x, y, radius, color, width]) => {
+					const s = canvases.get(id);
+					if (!s) throw new Error("surface");
+					s.cmds.push({ t: "cs", x, y, r: radius, c: color, w: width });
+					return
+				},
+
+				destroy: ([id]) => {
 					const s = canvases.get(id);
 					if (!s) return;
 					s.canvas.remove();
 					canvases.delete(id);
+					return
 				}
 			};
 
 			const apiTree = {
 				files: {
-					get: async ([name]) => {
-						const full = this._resolvePath(name);
-						return this.vfs.readFile(full);
+					get: async ([path]) => {
+						const full = this._resolvePath(path)
+						return this.vfs.readFile(full)
+					},
+					mkFile: async ([path, content]) => {
+						const full = this._resolvePath(path)
+						const data = content instanceof ArrayBuffer ? content : new TextEncoder().encode(String(content)).buffer
+						await this.vfs.writeFile(full, data)
+						return true
+					},
+					rmFile: async ([path]) => {
+						const full = this._resolvePath(path)
+						return this.vfs.deleteFile(full)
+					},
+					mkdir: async ([path]) => {
+						const full = this._resolvePath(path)
+						await this.vfs.mkdir(full)
+						return true
+					},
+					rmdir: async ([path]) => {
+						const full = this._resolvePath(path)
+						const entries = this.vfs.listDirectory(full)
+						for (const e of entries) {
+							const p = full.replace(/\/$/, "") + "/" + e
+							if (this.vfs.isDirectory(p)) {
+								await apiTree.files.rmdir([p])
+							} else {
+								await this.vfs.deleteFile(p)
+							}
+						}
+						await this.vfs.deleteFile(full)
+						return true
+					},
+					list: async ([path]) => {
+						const full = this._resolvePath(path)
+						return this.vfs.listDirectory(full)
+					},
+					exists: async ([path]) => {
+						const full = this._resolvePath(path)
+						return this.vfs.exists(full)
+					},
+					isDir: async ([path]) => {
+						const full = this._resolvePath(path)
+						return this.vfs.isDirectory(full)
 					}
 				},
 				cli: {
@@ -474,9 +627,33 @@ export class CLI {
 					},
 					edit: async ([id, text]) => {
 						return this._editInDisplay(id, text);
+					},
+					ask: async ([question, placeholder]) => {
+						const id = nextAsk++
+						const line = this._appendToDisplay(question)
+						const input = document.createElement("input")
+						input.type = "text";
+						input.classList.add("askInput");
+						input.placeholder = placeholder || "__________";
+						input.autofocus = true
+						this._appendNodeToDisplay(input)
+						input.focus();
+
+						return new Promise(res => {
+							asks.set(id, res)
+							input.addEventListener("keydown", e => {
+								if (e.key !== "Enter") return
+								const v = input.value
+								input.remove()
+								asks.get(id)?.(v)
+								asks.delete(id)
+								this._editInDisplay(line, "")
+							})
+						})
 					}
 				},
 				graphics,
+				events,
 				network: {
 					fetchText: async ([url]) => {
 						const res = await fetch(url)
@@ -491,7 +668,11 @@ export class CLI {
 
 			worker.onmessage = async e => {
 				const { type, id, path, args, success, result, error } = e.data;
-
+				if (type === "subscribe") {
+					const { event } = e.data;
+					if (!eventBus.has(event)) eventBus.set(event, new Map());
+					eventBus.get(event).set(worker, true);
+				}
 				if (type === "apiRequest") {
 					try {
 						const fn = resolveApi(apiTree, path);
