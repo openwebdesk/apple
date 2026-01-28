@@ -285,41 +285,52 @@ export class CLI {
 	}
 	_renderLines(text, linescont) {
 		function escapeHtml(str) {
-			return str.replace(/[&<>"']/g, m => {
-				switch (m) {
-					case "&": return "&amp;";
-					case "<": return "&lt;";
-					case ">": return "&gt;";
-					case '"': return "&quot;";
-					case "'": return "&#39;";
-				}
-			});
+			return str.replace(/[&<>"']/g, m => ({
+				"&": "&amp;",
+				"<": "&lt;",
+				">": "&gt;",
+				'"': "&quot;",
+				"'": "&#39;"
+			}[m]));
 		}
+
+		const START = "%type:pure_text%";
+		const END = "%pure_text_end%";
 
 		linescont.innerHTML = "";
 		const lines = text.split("\n");
-		let inPureText = false;
+		let pureStack = 0;
 
 		for (const lineText of lines) {
 			let resultHtml = "";
+			let cursor = 0;
 
-			if (inPureText) {
-				const endIdx = lineText.indexOf("%pure_text_end%");
-				if (endIdx !== -1) {
-					resultHtml += escapeHtml(lineText.slice(0, endIdx));
-					inPureText = false;
-					resultHtml += this._formatStyledText(lineText.slice(endIdx + 15));
+			while (cursor < lineText.length) {
+				if (pureStack > 0) {
+					const nextStart = lineText.indexOf(START, cursor);
+					const nextEnd = lineText.indexOf(END, cursor);
+
+					if (nextEnd === -1) {
+						resultHtml += escapeHtml(lineText.slice(cursor));
+						break;
+					} else if (nextStart !== -1 && nextStart < nextEnd) {
+						if (pureStack > 0) resultHtml += escapeHtml(lineText.slice(cursor, nextStart)) + escapeHtml(START);
+						pureStack++;
+						cursor = nextStart + START.length;
+					} else {
+						if (pureStack > 1) resultHtml += escapeHtml(lineText.slice(cursor, nextEnd)) + escapeHtml(END);
+						pureStack--;
+						cursor = nextEnd + END.length;
+					}
 				} else {
-					resultHtml += escapeHtml(lineText);
-				}
-			} else {
-				const startIdx = lineText.indexOf("%type:pure_text%");
-				if (startIdx !== -1) {
-					resultHtml += this._formatStyledText(lineText.slice(0, startIdx));
-					inPureText = true;
-					resultHtml += escapeHtml(lineText.slice(startIdx + 16));
-				} else {
-					resultHtml += this._formatStyledText(lineText);
+					const startIdx = lineText.indexOf(START, cursor);
+					if (startIdx === -1) {
+						resultHtml += this._formatStyledText(lineText.slice(cursor));
+						break;
+					}
+					resultHtml += this._formatStyledText(lineText.slice(cursor, startIdx));
+					pureStack++;
+					cursor = startIdx + START.length;
 				}
 			}
 
@@ -328,6 +339,7 @@ export class CLI {
 			linescont.appendChild(line);
 		}
 	}
+
 
 	_appendToDisplay(text) {
 		const id = randomString(16);
@@ -439,6 +451,7 @@ export class CLI {
 		const appCode = await this.vfs.readFile(appPath);
 		if (!appCode) {
 			this._appendToDisplay(`App not found: ${appName}`);
+			document.getElementById("input_cont").style.display = "flex";
 			return;
 		}
 
@@ -470,28 +483,27 @@ const signal = controller.signal;
 	};
 
 	const api = createApiProxy();
+	let apple = {end: ()=> postMessage({ type: "appExit", success: true, result: "" })}; 
 
 	const handlers = new Map();
-
-api.events.on = async ([event, fn]) => {
-	if (!handlers.has(event)) handlers.set(event, new Set());
-	handlers.get(event).add(fn);
-	postMessage({ type: "subscribe", event });
-};
-
 
 	onmessage = async e => {
 		const { type, data, id } = e.data;
 
 		if (type === "runApp") {
-			try {
-				const fn = new Function("params", "api", \`"use strict"; return (\${data.appCode})(params, api);\`);
-				const result = await fn(data.params, api);
-				result: typeof result === "string" ? result : JSON.stringify(result)
-			} catch (err) {
-				postMessage({ type: "appResult", success: false, error: err.message });
-			}
-		}
+	try {
+		const fn = new Function(
+			"params",
+			"api",
+			\`"use strict"; return (\${data.appCode})(params, api);\`
+		);
+
+		const ret = fn(data.params, api);
+	} catch (err) {
+		postMessage({ type: "appExit", success: false, error: err.message });
+	}
+}
+
 
 		if (type === "apiResponse") {
 			const p = pending.get(id);
@@ -558,6 +570,12 @@ api.events.on = async ([event, fn]) => {
 
 					canvases.set(id, { canvas, ctx, cmds: [] });
 					return id;
+				},
+				remove: ([id]) => {
+					const entry = canvases.get(id);
+					if (!entry) return;
+					(entry.canvas.parentNode || entry.canvas).remove();
+					canvases.delete(id);
 				},
 				begin: async ([id]) => {
 					const s = canvases.get(id);
@@ -725,19 +743,28 @@ api.events.on = async ([event, fn]) => {
 				}
 
 			};
+			const postAppCleanup = () => {
+				for (const { canvas } of canvases.values()) {
+					canvas.parentNode.remove();
+				}
+				for (const i of document.querySelectorAll(".askInput")) {
+					i.remove();
+				}
+				canvases.clear();
+				worker.terminate();
+				URL.revokeObjectURL(url);
+				document.getElementById("input_cont").style.display = "flex";
+				document.removeEventListener("keydown", keydownHandler);
+			};
+
 			const keydownHandler = e => {
-				if (e.ctrlKey && e.key === 'c') {
+				if (e.ctrlKey && e.key === "c") {
 					this._appendToDisplay("^C");
-					worker.terminate();
-					URL.revokeObjectURL(url);
-					document.getElementById("input_cont").style.display = "flex";
-					document.removeEventListener('keydown', keydownHandler);
+					postAppCleanup();
 				}
 			};
 
 			document.addEventListener('keydown', keydownHandler);
-
-
 
 			const resolveApi = (tree, path) =>
 				path.reduce((n, k) => n?.[k], tree);
@@ -761,12 +788,15 @@ api.events.on = async ([event, fn]) => {
 					return;
 				}
 
-				if (type === "appResult") {
-					this._appendToDisplay(success ? result ?? "[No output]" : `Error running app: ${error}`);
+				if (type === "appExit") {
+					const value = success ? (result ?? "") : `Error: ${error}`;
+					if (value !== "") this._appendToDisplay(value);
+
 					document.getElementById("input_cont").style.display = "flex";
 					worker.terminate();
 					URL.revokeObjectURL(url);
 					resolve();
+					document.removeEventListener('keydown', keydownHandler);
 				}
 			};
 

@@ -10,4 +10,5 @@ async (params, api) => {
     }
     await api.files.mkFile("root/apps/" + name + ".js", fetched)
     await api.cli.edit(id, "Installation Complete!");
+		apple.end();
 }
